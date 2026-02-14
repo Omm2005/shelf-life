@@ -17,7 +17,7 @@ export const auth = betterAuth({
     "mybettertapp://",
     ...(env.NODE_ENV === "development"
       ? ["exp://", "exp://**", "exp://192.168.*.*:*/**", "http://localhost:8081"]
-      : []),
+      : ["exp://", "exp://**"]),
   ],
   socialProviders: {
     google: {
