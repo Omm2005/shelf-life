@@ -5,6 +5,16 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "env": [
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "CORS_ORIGIN",
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "DATABASE_URL",
+        "TAVILY_API_KEY",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_CLIENT_ID"
+      ],
       "outputs": ["dist/**", ".next/**"]
     },
     "lint": {
