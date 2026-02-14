@@ -1,12 +1,20 @@
 import { Redirect } from "expo-router";
+import * as Haptics from "expo-haptics";
 import { Button, Card, Spinner } from "heroui-native";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 
 import { Container } from "@/components/container";
 import { authClient } from "@/lib/auth-client";
 
 export default function HomeScreen() {
   const { data: session, isPending } = authClient.useSession();
+
+  async function handleSignOut() {
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    await authClient.signOut();
+  }
 
   if (isPending) {
     return (
@@ -29,9 +37,7 @@ export default function HomeScreen() {
           <Button
             className="mt-2"
             variant="secondary"
-            onPress={async () => {
-              await authClient.signOut();
-            }}
+            onPress={handleSignOut}
           >
             <Button.Label>Sign out</Button.Label>
           </Button>

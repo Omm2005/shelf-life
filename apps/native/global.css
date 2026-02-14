@@ -2,4 +2,13 @@
 @import "uniwind";
 @import "heroui-native/styles";
 
-@source './node_modules/heroui-native/lib';
+@source "./app";
+@source "./components";
+@source "./contexts";
+@source "./lib";
+@source "./node_modules/heroui-native/lib";
+
+@theme {
+  --color-brand: #f97316;
+  --radius-auth: 1rem;
+}
