@@ -14,10 +14,10 @@ export const auth = betterAuth({
   }),
   trustedOrigins: [
     env.CORS_ORIGIN,
-    "mybettertapp://",
+    "shelf-life://",
     ...(env.NODE_ENV === "development"
       ? ["exp://", "exp://**", "exp://192.168.*.*:*/**", "http://localhost:8081"]
-      : ["exp://", "exp://**"]),
+      : []),
   ],
   socialProviders: {
     google: {

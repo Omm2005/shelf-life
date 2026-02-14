@@ -1,111 +1,87 @@
 "use client";
 
+import { createWorker } from "tesseract.js";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
-import type { GroceryReceiptWithShelf } from "@/lib/ai-ocr-schema";
+type GroceryItem = {
+  printedProductName: string;
+  commonProductName: string;
+  price: number;
+  quantity: number;
+};
 
-type ItemStatus = "loading" | "done" | "error";
-
-type StreamEvent =
-  | { type: "stage"; stage: string; message: string }
-  | { type: "item_status"; item: string; status: ItemStatus; shelfLifeDays?: number }
-  | { type: "llm"; text: string }
-  | { type: "final"; data: GroceryReceiptWithShelf; ocrText: string }
-  | { type: "error"; error: string };
+type ReceiptResponse = {
+  success: boolean;
+  data: {
+    merchant: string;
+    printedDate: string;
+    items: GroceryItem[];
+  };
+  metadata: {
+    itemCount: number;
+  };
+};
 
 export default function AIOCRPage() {
   const [processing, setProcessing] = useState(false);
   const [ocrText, setOcrText] = useState("");
-  const [data, setData] = useState<GroceryReceiptWithShelf | null>(null);
   const [error, setError] = useState("");
   const [workflowStage, setWorkflowStage] = useState("Idle");
-  const [workflowLog, setWorkflowLog] = useState<string[]>([]);
-  const [itemStatus, setItemStatus] = useState<Record<string, ItemStatus>>({});
-
-  const appendLog = (message: string) => {
-    setWorkflowLog((prev) => [...prev, message]);
-  };
-
-  const readStreamingResponse = async (response: Response) => {
-    if (!response.body) {
-      throw new Error("No response stream from /api/ai-ocr");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        const event = JSON.parse(line) as StreamEvent;
-
-        if (event.type === "stage") {
-          setWorkflowStage(event.message);
-          appendLog(event.message);
-        }
-
-        if (event.type === "item_status") {
-          setItemStatus((prev) => ({ ...prev, [event.item]: event.status }));
-        }
-
-        if (event.type === "llm") {
-          appendLog(`AI: ${event.text}`);
-        }
-
-        if (event.type === "final") {
-          setData(event.data);
-          setOcrText(event.ocrText);
-          setWorkflowStage("Completed");
-          appendLog("Workflow completed");
-        }
-
-        if (event.type === "error") {
-          setError(event.error);
-          setWorkflowStage("Failed");
-          appendLog(`Error: ${event.error}`);
-        }
-      }
-    }
-  };
+  const [data, setData] = useState<ReceiptResponse["data"] | null>(null);
 
   const handleFile = async (file: File) => {
     setProcessing(true);
     setError("");
     setData(null);
     setOcrText("");
-    setWorkflowLog([]);
-    setWorkflowStage("Uploading image");
-    setItemStatus({});
+    setWorkflowStage("Running OCR in browser");
+
+    let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
 
     try {
-      const formData = new FormData();
-      formData.append("image", file);
+      worker = await createWorker("eng");
+      const {
+        data: { text },
+      } = await worker.recognize(file);
+
+      const normalizedText = text.trim();
+      if (!normalizedText) {
+        throw new Error("No text detected in image");
+      }
+
+      setOcrText(normalizedText);
+      setWorkflowStage("Sending OCR text to backend");
 
       const response = await fetch("/api/ai-ocr", {
         method: "POST",
-        body: formData,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ocrText: normalizedText }),
       });
 
+      const payload = (await response.json()) as
+        | ReceiptResponse
+        | { error?: string; details?: string };
+
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Request failed");
+        const message = "error" in payload
+          ? payload.error || payload.details || "Request failed"
+          : "Request failed";
+        throw new Error(message);
       }
 
-      await readStreamingResponse(response);
+      const successPayload = payload as ReceiptResponse;
+      setData(successPayload.data);
+      setWorkflowStage("Completed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setWorkflowStage("Failed");
     } finally {
+      if (worker) {
+        await worker.terminate();
+      }
       setProcessing(false);
     }
   };
@@ -114,7 +90,7 @@ export default function AIOCRPage() {
     <div className="container mx-auto max-w-5xl p-4 space-y-4">
       <h1 className="text-2xl font-semibold">AI OCR + Shelf Life</h1>
       <p className="text-sm text-muted-foreground">
-        OCR -&gt; AI extraction -&gt; web search tool -&gt; final JSON with shelf-life days.
+        OCR runs in the browser, then extracted text is sent to the backend for AI parsing.
       </p>
 
       <input
@@ -136,83 +112,14 @@ export default function AIOCRPage() {
       {processing ? (
         <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <LoaderCircle className="h-4 w-4 animate-spin" />
-          Processing stream...
+          Processing...
         </div>
       ) : null}
 
       {error ? <p className="text-red-500">{error}</p> : null}
 
       <section className="space-y-2">
-        <h2 className="font-medium">Items + Shelf Life</h2>
-        <div className="rounded border divide-y">
-          {data?.items?.length ? (
-            data.items.map((item, index) => {
-              const status = itemStatus[item.normalizePrintedName] ?? "loading";
-
-              return (
-                <div
-                  key={`${item.normalizePrintedName}-${index}`}
-                  className="flex items-start justify-between gap-4 p-3"
-                >
-                  <div>
-                    <p className="font-medium">{item.normalizePrintedName}</p>
-                    <p className="text-xs text-muted-foreground">Printed: {item.printedName}</p>
-                    <p className="text-sm mt-2">{item.shelfLifeText || "No shelf-life answer"}</p>
-                    {typeof item.shelfLifeDays === "number" ? (
-                      <p className="text-xs text-muted-foreground">Shelf days: {item.shelfLifeDays}</p>
-                    ) : null}
-                    {item.sources?.length ? (
-                      <div className="mt-2 space-y-1">
-                        {item.sources.map((source) => (
-                          <div key={source.url} className="text-xs text-muted-foreground">
-                            <a href={source.url} target="_blank" rel="noreferrer" className="underline">
-                              {source.title}
-                            </a>
-                            {source.favicon ? (
-                              <img
-                                src={source.favicon}
-                                alt={source.title}
-                                className="inline-block h-3 w-3 ml-1 align-middle"
-                              />
-                            ) : null}
-                            {source.description ? (
-                              <p className="line-clamp-2">{source.description}</p>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="min-w-[140px] flex justify-end">
-                    {status === "done" ? (
-                      <span className="text-xs text-green-600 dark:text-green-400">Calculated</span>
-                    ) : status === "error" ? (
-                      <span className="text-xs text-red-500">Failed</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                        Calculating...
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="p-3 text-sm text-muted-foreground">No products yet</div>
-          )}
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="font-medium">Workflow Log</h2>
-        <pre className="rounded border p-3 text-xs overflow-auto max-h-56">
-          {workflowLog.length ? workflowLog.join("\n") : "No workflow log yet"}
-        </pre>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="font-medium">Final JSON</h2>
+        <h2 className="font-medium">Parsed Receipt JSON</h2>
         <pre className="rounded border p-3 text-xs overflow-auto">
           {data ? JSON.stringify(data, null, 2) : "No output yet"}
         </pre>

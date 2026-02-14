@@ -1,36 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { createWorker } from "tesseract.js";
-
-const WORKER_RELATIVE_PATH = path.join(
-  "node_modules",
-  "tesseract.js",
-  "src",
-  "worker-script",
-  "node",
-  "index.js",
-);
-
-const getNodeWorkerPath = () => {
-  const candidates = [
-    path.resolve(process.cwd(), WORKER_RELATIVE_PATH),
-    path.resolve(process.cwd(), "..", WORKER_RELATIVE_PATH),
-    path.resolve(process.cwd(), "..", "..", WORKER_RELATIVE_PATH),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  throw new Error("Unable to locate tesseract node worker script on disk.");
-};
+import { getTesseractNodeWorkerPath } from "@/lib/tesseract";
 
 const convertor = async (img: string | Buffer) => {
   const worker = await createWorker("eng", 1, {
-    workerPath: getNodeWorkerPath(),
+    workerPath: getTesseractNodeWorkerPath(),
   });
 
   try {

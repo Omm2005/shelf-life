@@ -32,6 +32,7 @@
   "dependencies": {
     "@shelf-life/env": "workspace:*",
     "dotenv": "catalog:",
+    "expo-web-browser": "^15.0.10",
     "zod": "catalog:"
   },
   "devDependencies": {

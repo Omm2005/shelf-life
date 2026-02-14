@@ -1,6 +1,7 @@
 import * as Haptics from "expo-haptics";
-import { Redirect, router } from "expo-router";
-import { Button, Card, Spinner, useToast } from "heroui-native";
+import { router } from "expo-router";
+import { Button, Card, useToast } from "heroui-native";
+import { useState } from "react";
 import { Platform, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
@@ -8,51 +9,47 @@ import { Container } from "@/components/container";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { authClient } from "@/lib/auth-client";
 
-export default function AuthScreen() {
-  const { data: session, isPending } = authClient.useSession();
+export default function SignInScreen() {
   const { toast } = useToast();
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   async function handleGoogleSignIn() {
+    if (isSigningIn) {
+      return;
+    }
+    setIsSigningIn(true);
+
     if (Platform.OS !== "web") {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    await authClient.signIn.social(
-      {
-        provider: "google",
-        callbackURL: "/home",
-      },
-      {
-        onError: async (error) => {
-          if (Platform.OS !== "web") {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          }
-
-          toast.show({
-            variant: "danger",
-            label: error.error?.message || "Google sign in failed",
-          });
+    try {
+      await authClient.signIn.social(
+        {
+          provider: "google",
+          callbackURL: "/",
         },
-        onSuccess: async () => {
-          if (Platform.OS !== "web") {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          }
-          router.replace("/home");
+        {
+          onError: async (error) => {
+
+            toast.show({
+              variant: "danger",
+              label: error.error?.message || "Google sign in failed",
+            });
+          },
+          onSuccess: async () => {
+            router.replace("/");
+          },
         },
-      },
-    );
-  }
-
-  if (isPending) {
-    return (
-      <Container isScrollable={false} className="justify-center items-center">
-        <Spinner />
-      </Container>
-    );
-  }
-
-  if (session?.user) {
-    return <Redirect href="/home" />;
+      );
+    } catch {
+      toast.show({
+        variant: "danger",
+        label: "Google sign in failed",
+      });
+    } finally {
+      setIsSigningIn(false);
+    }
   }
 
   return (
@@ -73,8 +70,8 @@ export default function AuthScreen() {
             </Text>
           </Animated.View>
 
-          <Button className="w-full rounded-xl h-11" onPress={handleGoogleSignIn}>
-            <Button.Label>Continue with Google</Button.Label>
+          <Button className="w-full rounded-xl h-11" onPress={handleGoogleSignIn} isDisabled={isSigningIn}>
+            <Button.Label>{isSigningIn ? "Opening Google..." : "Continue with Google"}</Button.Label>
           </Button>
         </View>
       </Card>

@@ -1,141 +1,86 @@
-import { devToolsMiddleware } from "@ai-sdk/devtools";
-import { google } from "@ai-sdk/google";
-import { stepCountIs, streamText, wrapLanguageModel } from "ai";
+import { NextRequest, NextResponse } from 'next/server';
+import { generateObject } from 'ai';
+import { google } from '@ai-sdk/google';
+import z from 'zod';
 
-import { createAgentTools, type WorkflowEvent } from "@/lib/AgentTools";
-
-export const runtime = "nodejs";
+export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const encodeLine = (payload: unknown) => `${JSON.stringify(payload)}\n`;
+// Define the exact schema structure
+const groceryItemSchema = z.object({
+  printedProductName: z.string().describe('The exact product name as printed on the receipt'),
+  commonProductName: z.string().describe('A normalized/common name for the product'),
+  price: z.number().describe('Price of the item'),
+  quantity: z.number().describe('The quantity purchased')
+});
 
-export async function POST(req: Request) {
-  const formData = await req.formData();
-  const image = formData.get("image");
+const receiptSchema = z.object({
+  merchant: z.string().describe('Name of the store/merchant'),
+  printedDate: z.string().describe('Date as printed on the receipt'),
+  items: z.array(groceryItemSchema).describe('List of all grocery items from the receipt')
+});
 
-  if (!(image instanceof File)) {
-    return new Response(encodeLine({ type: "error", error: "Missing image file in 'image' field." }), {
-      status: 400,
-      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => null);
+    const ocrText = typeof body?.ocrText === 'string' ? body.ocrText.trim() : '';
+
+    if (!ocrText) {
+      return NextResponse.json(
+        { error: 'No OCR text provided' },
+        { status: 400 }
+      );
+    }
+
+    const { object } = await generateObject({
+      model: google('gemini-2.5-flash'),
+      schema: receiptSchema,
+      messages: [
+        {
+          role: 'user',
+          content: `Extract all grocery items from this receipt.
+
+OCR Text from Receipt:
+${ocrText}
+
+Instructions:
+- Extract the merchant/store name
+- Extract the date as it appears on the receipt
+- For each item:
+  * printedProductName: Extract the exact product name as shown on receipt (e.g., "ORG BANANAS", "2% MILK GAL")
+  * commonProductName: Provide a clean, readable version (e.g., "Organic Bananas", "2% Milk Gallon")
+  * price: The item price as a number
+  * quantity: The quantity purchased (default to 1 if not specified)
+- Include all items from the receipt
+- If the item is repeated than add the quantity instead of listing it multiple times
+`
+        }
+      ],
     });
-  }
 
-  const bytes = await image.arrayBuffer();
-  const imageBuffer = Buffer.from(bytes);
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const encoder = new TextEncoder();
-      const send = (payload: WorkflowEvent) => controller.enqueue(encoder.encode(encodeLine(payload)));
-
-      try {
-        send({ type: "stage", stage: "queued", message: "Starting AI OCR workflow" });
-
-        const model = wrapLanguageModel({
-          model: google("gemini-2.5-flash"),
-          middleware: devToolsMiddleware(),
-        });
-
-        const { tools, getState, buildFallbackFinalOutput } = createAgentTools({
-          imageBuffer,
-          send,
-        });
-
-        const result = streamText({
-          model,
-          stopWhen: stepCountIs(6),
-          prepareStep: ({ stepNumber }) => {
-            if (stepNumber === 0) {
-              return {
-                activeTools: ["runOCR"],
-                toolChoice: { type: "tool" as const, toolName: "runOCR" },
-              };
-            }
-
-            if (stepNumber === 1) {
-              return {
-                activeTools: ["submitReceipt"],
-                toolChoice: { type: "tool" as const, toolName: "submitReceipt" },
-              };
-            }
-
-            if (stepNumber === 2) {
-              return {
-                activeTools: ["webSearchShelfLife"],
-                toolChoice: { type: "tool" as const, toolName: "webSearchShelfLife" },
-              };
-            }
-
-            if (stepNumber === 3) {
-              return {
-                activeTools: ["submitFinalReceipt"],
-                toolChoice: { type: "tool" as const, toolName: "submitFinalReceipt" },
-              };
-            }
-
-            return {};
-          },
-          tools,
-          prompt: [
-            "You are a receipt extraction workflow agent.",
-            "Follow this exact order:",
-            "1) call runOCR",
-            "2) call submitReceipt with parsed receipt fields",
-            "3) call webSearchShelfLife",
-            "4) call submitFinalReceipt with all item details and shelfLife fields and sources[]",
-            "Do not skip steps.",
-            "Only keep grocery/food items. If an item is not grocery, do not include it in output JSON.",
-            "Required receipt shape:",
-            '{"grceryName":"string","printedDate":"string","items":[{"printedName":"string","normalizePrintedName":"string","price":number?,"quantity":number?}]}',
-            "Required final shape:",
-            '{"grceryName":"string","printedDate":"string","items":[{"printedName":"string","normalizePrintedName":"string","price":number?,"quantity":number?,"shelfLifeText":"string","shelfLifeDays":number?,"query":string?,"sources":[{"title":"string","url":"https://...","favicon":"https://...","images":["https://..."],"description":"string","score":number?,"publishedDate":"string?"}]}]}',
-          ].join("\n"),
-        });
-
-        for await (const textPart of result.textStream) {
-          const chunk = textPart.trim();
-          if (chunk) {
-            send({ type: "llm", text: chunk });
-          }
-        }
-
-        const { ocrText, receipt, finalOutput } = getState();
-        const fallback = buildFallbackFinalOutput();
-
-        if (!finalOutput) {
-          if (!receipt || !fallback) {
-            throw new Error("Model did not submit receipt output.");
-          }
-        }
-
-        const finalData = finalOutput ?? fallback;
-        if (!finalData) {
-          throw new Error("Failed to build final receipt output.");
-        }
-
-        send({
-          type: "final",
-          data: finalData,
-          ocrText,
-        });
-
-        controller.close();
-      } catch (error) {
-        console.error("AI OCR API error", error);
-        send({
-          type: "error",
-          error: error instanceof Error ? error.message : "Failed to process AI OCR request.",
-        });
-        controller.close();
+    console.log({
+      success: true,
+      data: object,
+      metadata: {
+        itemCount: object.items.length
       }
-    },
-  });
+    });
+    return NextResponse.json({
+      success: true,
+      data: object,
+      metadata: {
+        itemCount: object.items.length
+      }
+    });
 
-  return new Response(stream, {
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-    },
-  });
+  } catch (error) {
+    console.error('OCR processing error:', error);
+    return NextResponse.json(
+      { 
+        error: 'Failed to process receipt', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      },
+      { status: 500 }
+    );
+  }
 }
