@@ -1,0 +1,44 @@
+{
+  "name": "shelf-life",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "dotenv": "^17.2.2",
+      "zod": "^4.1.13",
+      "typescript": "^5",
+      "better-auth": "^1.4.18",
+      "@tanstack/react-form": "^1.28.0",
+      "ai": "^6.0.3",
+      "@ai-sdk/react": "^3.0.3",
+      "@better-auth/expo": "^1.4.18"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "check-types": "turbo check-types",
+    "dev:native": "turbo -F native dev",
+    "dev:web": "turbo -F web dev",
+    "db:push": "turbo -F @shelf-life/db db:push",
+    "db:studio": "turbo -F @shelf-life/db db:studio",
+    "db:generate": "turbo -F @shelf-life/db db:generate",
+    "db:migrate": "turbo -F @shelf-life/db db:migrate"
+  },
+  "dependencies": {
+    "@shelf-life/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@shelf-life/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "turbo": "^2.6.3",
+    "typescript": "catalog:"
+  },
+  "packageManager": "bun@1.2.17"
+}

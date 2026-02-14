@@ -1,0 +1,25 @@
+{
+  "name": "@shelf-life/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@better-auth/expo": "catalog:",
+    "@shelf-life/db": "workspace:*",
+    "@shelf-life/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@shelf-life/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,3 @@
+{
+  "extends": "@shelf-life/config/tsconfig.base.json"
+}
